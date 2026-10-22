@@ -62,8 +62,8 @@ pub const Engine = struct {
     pub fn calc_encode_len(input_len: usize) !usize {
         return (if (input_len < 3) 4 else try std.math.divCeil(usize, input_len, 3)) * 4;
     }
-
-    pub fn calc_decode_len(input_len: usize) !usize {
-        return (if (input_len < 4) 3 else try std.math.divFloor(usize, input_len, 4)) * 3;
+    
+    pub fn calc_decode_len(input_len: usize, padding_length: usize) !usize {
+        return (if ((input_len < 4)) 3 else (try std.math.divFloor(usize, input_len, 4)) * 3) - padding_length;
     }
 };
