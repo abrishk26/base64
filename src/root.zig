@@ -56,7 +56,7 @@ pub const Engine = struct {
                 count = 0;
             }
         }
-
+        
         try output.appendSlice(allocator, switch (count) {
             3 => &.{
                 (buf[0] << 2) | (buf[1] >> 4),
@@ -65,7 +65,7 @@ pub const Engine = struct {
             2 => &.{
                 (buf[0] << 2) | (buf[1] >> 4),
             },
-            else => unreachable,
+            else => return output.items,
         });
 
         return output.items;
