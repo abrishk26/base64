@@ -1,18 +1,21 @@
 const std = @import("std");
+const alphabet = @import("alphabet.zig");
 
-pub const EngineConfig = struct { alphabet: [64]u8 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".*, padding: u8 = '=' };
+pub const EngineConfig = struct { alphabet: alphabet.Alphabet = alphabet.STANDARD };
 
 pub const Engine = struct {
-    alphabet: [64]u8,
-    padding: u8,
+    alphabet: alphabet.Alphabet,
 
     pub fn init(
         config: EngineConfig,
     ) Engine {
-        return .{ .alphabet = config.alphabet, .padding = config.padding };
+        return .{ .alphabet = config.alphabet };
     }
 
     pub fn encode(self: Engine, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+        const symbols = self.alphabet.symbols;
+        const padding = self.alphabet.padding;
+        
         var buf = [_]u8{ 0, 0, 0 };
         var output = try std.ArrayList(u8).initCapacity(allocator, try calc_encode_len(input.len));
 
@@ -22,24 +25,27 @@ pub const Engine = struct {
             count += 1;
 
             if (count == 3) {
-                try output.appendSlice(allocator, &.{ self.alphabet[buf[0] >> 2], self.alphabet[((buf[0] & 3) << 4) | (buf[1] >> 4)], self.alphabet[((buf[1] & 15) << 2) | (buf[2] >> 6)], self.alphabet[buf[2] & 63] });
+                try output.appendSlice(allocator, &.{ symbols[buf[0] >> 2], symbols[((buf[0] & 3) << 4) | (buf[1] >> 4)], symbols[((buf[1] & 15) << 2) | (buf[2] >> 6)], symbols[buf[2] & 63] });
                 count = 0;
             }
         }
 
         if (count == 1) {
-            try output.appendSlice(allocator, &.{ self.alphabet[buf[0] >> 2], self.alphabet[(buf[0] & 3) << 4], self.padding, self.padding });
+            try output.appendSlice(allocator, &.{ symbols[buf[0] >> 2], symbols[(buf[0] & 3) << 4], padding.as_u8(), padding.as_u8() });
         }
 
         if (count == 2) {
-            try output.appendSlice(allocator, &.{ self.alphabet[buf[0] >> 2], self.alphabet[((buf[0] & 3) << 4) | (buf[1] >> 4)], self.alphabet[(buf[1] & 15) << 2], self.padding });
+            try output.appendSlice(allocator, &.{ symbols[buf[0] >> 2], symbols[((buf[0] & 3) << 4) | (buf[1] >> 4)], symbols[(buf[1] & 15) << 2], padding.as_u8() });
         }
 
         return output.items;
     }
+    
     pub fn decode(self: Engine, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+        const padding = self.alphabet.padding;
+        
         var buf = [_]u8{ 0, 0, 0, 0 };
-        const padding_count = std.mem.count(u8, input, &.{self.padding});
+        const padding_count = std.mem.count(u8, input, &.{padding.as_u8()});
         var output = try std.ArrayList(u8).initCapacity(allocator, try calc_decode_len(input.len, padding_count));
         var count: usize = 0;
 
@@ -81,7 +87,7 @@ pub const Engine = struct {
     }
 
     pub fn _char_at(self: Engine, index: usize) u8 {
-        return self.alphabet[index];
+        return self.alphabet.symbols[index];
     }
 
     fn _char_index(self: Engine, char: u8) u8 {
