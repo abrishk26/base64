@@ -24,5 +24,8 @@ jobs:
       - name: Check Zig version
         run: zig version
 
-      - name: Run tests
+      - name: Run root tests
         run: zig test src/root.zig
+
+      - name: Run alphabet tests
+        run: zig test src/alphabet.zig
