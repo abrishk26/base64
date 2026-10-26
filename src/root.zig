@@ -104,10 +104,6 @@ pub const Engine = struct {
         return output;
     }
 
-    fn _char_at(self: Engine, index: usize) u8 {
-        return self.alphabet.symbols[index];
-    }
-
     // we have 64 chars and how do we perform reverse look up based on their ascii values
     fn _char_index(self: Engine, char: u8) error{InvalidCharacter}!u8 {
         const index = self.alphabet.lookup[char];
