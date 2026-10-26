@@ -1,0 +1,28 @@
+name: Zig CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run Zig tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@v1
+        with:
+          version: "0.17.0"
+
+      - name: Check Zig version
+        run: zig version
+
+      - name: Run tests
+        run: zig test src/root.zig
