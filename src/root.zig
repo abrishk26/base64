@@ -1,9 +1,11 @@
 const std = @import("std");
-const alphabet = @import("alphabet.zig");
-const errors = @import("errors.zig");
+
+pub const alphabet = @import("alphabet.zig");
+pub const errors = @import("errors.zig");
 
 pub const EncodeError = errors.EncodeError;
 pub const DecodeError = errors.DecodeError;
+pub const describe = errors.describe;
 
 pub const EngineConfig = struct { alphabet: alphabet.Alphabet = alphabet.STANDARD };
 
@@ -16,7 +18,7 @@ pub const Engine = struct {
         return .{ .alphabet = config.alphabet };
     }
 
-    pub fn encode(self: Engine, allocator: std.mem.Allocator, input: []const u8) EncodeError!std.ArrayList(u8) {
+    pub fn encode(self: Engine, allocator: std.mem.Allocator, input: []const u8) EncodeError![]u8 {
         const symbols = self.alphabet.symbols;
         const padding = self.alphabet.padding;
 
@@ -43,14 +45,14 @@ pub const Engine = struct {
             try output.appendSlice(allocator, &.{ symbols[buf[0] >> 2], symbols[((buf[0] & 3) << 4) | (buf[1] >> 4)], symbols[(buf[1] & 15) << 2], padding.as_u8() });
         }
 
-        return output;
+        return output.toOwnedSlice(allocator);
     }
 
     pub fn decode(
         self: Engine,
         allocator: std.mem.Allocator,
         input: []const u8,
-    ) DecodeError!std.ArrayList(u8) {
+    ) DecodeError![]u8 {
         const pad = self.alphabet.padding.as_u8();
 
         // Count *trailing* padding only.
@@ -101,7 +103,7 @@ pub const Engine = struct {
             else => return error.InvalidLength,
         }
 
-        return output;
+        return output.toOwnedSlice(allocator);
     }
 
     // we have 64 chars and how do we perform reverse look up based on their ascii values
@@ -134,11 +136,11 @@ fn expectEncode(
     input: []const u8,
     expected: []const u8,
 ) !void {
-    var out = try engine.encode(testing.allocator, input);
-    defer out.deinit(testing.allocator);
+    const out = try engine.encode(testing.allocator, input);
+    defer testing.allocator.free(out);
 
-    try testing.expectEqualSlices(u8, expected, out.items);
-    try testing.expectEqual(expected.len, out.items.len);
+    try testing.expectEqualSlices(u8, expected, out);
+    try testing.expectEqual(expected.len, out.len);
 }
 
 fn expectDecode(
@@ -146,11 +148,11 @@ fn expectDecode(
     input: []const u8,
     expected: []const u8,
 ) !void {
-    var out = try engine.decode(testing.allocator, input);
-    defer out.deinit(testing.allocator);
+    const out = try engine.decode(testing.allocator, input);
+    defer testing.allocator.free(out);
 
-    try testing.expectEqualSlices(u8, expected, out.items);
-    try testing.expectEqual(expected.len, out.items.len);
+    try testing.expectEqualSlices(u8, expected, out);
+    try testing.expectEqual(expected.len, out.len);
 }
 
 const Rfc4648Vector = struct {
@@ -188,13 +190,13 @@ test "RFC 4648 §10: roundtrip" {
     const engine = Engine.init(.{ .alphabet = alphabet.STANDARD });
 
     for (rfc4648_vectors) |v| {
-        var encoded = try engine.encode(testing.allocator, v.decoded);
-        defer encoded.deinit(testing.allocator);
+        const encoded = try engine.encode(testing.allocator, v.decoded);
+        defer testing.allocator.free(encoded);
 
-        var decoded = try engine.decode(testing.allocator, encoded.items);
-        defer decoded.deinit(testing.allocator);
+        const decoded = try engine.decode(testing.allocator, encoded);
+        defer testing.allocator.free(decoded);
 
-        try testing.expectEqualSlices(u8, v.decoded, decoded.items);
+        try testing.expectEqualSlices(u8, v.decoded, decoded);
     }
 }
 
@@ -357,7 +359,7 @@ test "IMAP_MUTF7 encodes index 63 as comma" {
 test "custom padding symbol is honoured" {
     const custom_alphabet = try alphabet.Alphabet.new_with_padding(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
-        .{ .s = '@' },
+        '@',
     );
 
     const engine = Engine.init(.{ .alphabet = custom_alphabet });

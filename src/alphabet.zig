@@ -6,7 +6,7 @@ const std = @import("std");
 const ALPHABET_LEN: usize = 64;
 
 /// Pad symbol for non-weird alphabets.
-pub const PADDING_SYMBOL: Symbol = .{ .s = '=' };
+const PADDING_SYMBOL: Symbol = .{ .s = '=' };
 
 /// An alphabet defines the 64 ASCII characters (symbols) used for base64.
 ///
@@ -35,7 +35,7 @@ pub const Alphabet = struct {
     ///
     /// See [`Self::new_with_padding`] if a non-default padding symbol is needed.
     pub fn new(alphabet: []const u8) ParseAlphabetError!Alphabet {
-        return Alphabet.new_with_padding(alphabet, PADDING_SYMBOL);
+        return Alphabet.new_with_padding(alphabet, '=');
     }
 
     /// Performs no checks so that it can be const.
@@ -56,43 +56,28 @@ pub const Alphabet = struct {
     }
 
     /// Create an `Alphabet` from a string of 64 unique printable ASCII bytes, with a custom
-    /// padding symbol.
+    /// padding byte.
     ///
-    /// The padding symbol must not appear in the alphabet.
+    /// The padding byte must be a printable ASCII byte and must not appear in the alphabet.
     ///
     /// This is meant for strange alphabets that don't use `=` as the padding symbol.
     pub fn new_with_padding(
         alphabet: []const u8,
-        padding: Symbol,
+        padding: u8,
     ) ParseAlphabetError!Alphabet {
         if (alphabet.len != ALPHABET_LEN) return error.InvalidLength;
+        if (!is_valid_b64_symbol(padding)) return error.UnprintableByte;
 
-        const pad_byte = padding.as_u8();
         for (alphabet, 0..) |byte, index| {
             if (!is_valid_b64_symbol(byte)) return error.UnprintableByte;
-            if (byte == pad_byte) return error.ReservedByte;
+            if (byte == padding) return error.ReservedByte;
 
             // Only need to check earlier bytes — later ones will check against this one.
             for (alphabet[0..index]) |prev| {
                 if (prev == byte) return error.DuplicatedByte;
             }
         }
-        return Alphabet.from_str_unchecked(alphabet, padding);
-    }
-
-    /// The 64 symbols of the alphabet (excluding padding).
-    pub fn get_symbols(self: Alphabet) [ALPHABET_LEN]Symbol {
-        var symbols: [ALPHABET_LEN]Symbol = undefined;
-        for (self.symbols, 0..) |s, i| {
-            symbols[i] = Symbol{ .s = s };
-        }
-
-        return symbols;
-    }
-
-    /// The symbol used for padding.
-    pub fn get_padding(self: Alphabet) Symbol {
-        return self.padding;
+        return Alphabet.from_str_unchecked(alphabet, .{ .s = padding });
     }
 };
 
@@ -200,7 +185,7 @@ test "new accepts the standard alphabet" {
 test "new_with_padding accepts a custom padding symbol" {
     const a = try Alphabet.new_with_padding(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
-        .{ .s = '@' },
+        '@',
     );
 
     try testing.expectEqual(@as(u8, '@'), a.padding.as_u8());
@@ -210,7 +195,7 @@ test "new_with_padding allows a padding symbol that is not in the alphabet" {
     // '@' is printable and not present in the standard symbols.
     const a = try Alphabet.new_with_padding(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
-        .{ .s = '@' },
+        '@',
     );
 
     try testing.expectEqual(@as(u8, '@'), a.padding.as_u8());
@@ -261,7 +246,7 @@ test "new_with_padding rejects a custom pad byte inside the alphabet" {
         error.ReservedByte,
         Alphabet.new_with_padding(
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+@",
-            .{ .s = '@' },
+            '@',
         ),
     );
 }

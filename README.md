@@ -30,9 +30,9 @@ const base64 = @import("base64");
 
 const engine = base64.Engine.init(.{});
 
-var encoded = try engine.encode(allocator, "foobar");
-defer encoded.deinit(allocator);
-// encoded.items == "Zm9vYmFy"
+const encoded = try engine.encode(allocator, "foobar");
+defer allocator.free(encoded);
+// encoded == "Zm9vYmFy"
 ```
 
 ### Decoding
@@ -44,13 +44,13 @@ const base64 = @import("base64");
 
 const engine = base64.Engine.init(.{});
 
-var decoded = try engine.decode(allocator, "Zm9vYmFy");
-defer decoded.deinit(allocator);
-// decoded.items == "foobar"
+const decoded = try engine.decode(allocator, "Zm9vYmFy");
+defer allocator.free(decoded);
+// decoded == "foobar"
 
-var decoded_unpadded = try engine.decode(allocator, "Zg");
-defer decoded_unpadded.deinit(allocator);
-// decoded_unpadded.items == "f"
+const decoded_unpadded = try engine.decode(allocator, "Zg");
+defer allocator.free(decoded_unpadded);
+// decoded_unpadded == "f"
 ```
 
 ### URL-safe alphabet (RFC 4648)
@@ -62,9 +62,9 @@ const base64 = @import("base64");
 
 const engine = base64.Engine.init(.{ .alphabet = base64.alphabet.URL_SAFE });
 
-var encoded = try engine.encode(allocator, &[_]u8{ 0xfb, 0xef, 0xbe });
-defer encoded.deinit(allocator);
-// encoded.items == "----"
+const encoded = try engine.encode(allocator, &[_]u8{ 0xfb, 0xef, 0xbe });
+defer allocator.free(encoded);
+// encoded == "----"
 ```
 
 ### IMAP modified UTF-7
@@ -74,9 +74,9 @@ const base64 = @import("base64");
 
 const engine = base64.Engine.init(.{ .alphabet = base64.alphabet.IMAP_MUTF7 });
 
-var encoded = try engine.encode(allocator, &[_]u8{ 0xff, 0xff, 0xff });
-defer encoded.deinit(allocator);
-// encoded.items == ",,,,"
+const encoded = try engine.encode(allocator, &[_]u8{ 0xff, 0xff, 0xff });
+defer allocator.free(encoded);
+// encoded == ",,,,"
 ```
 
 ### Custom alphabet
@@ -89,13 +89,13 @@ const custom = try base64.alphabet.Alphabet.new(
 );
 const engine = base64.Engine.init(.{ .alphabet = custom });
 
-var encoded = try engine.encode(allocator, "foobar");
-defer encoded.deinit(allocator);
-// encoded.items == "Zm9vYmFy"
+const encoded = try engine.encode(allocator, "foobar");
+defer allocator.free(encoded);
+// encoded == "Zm9vYmFy"
 
-var decoded = try engine.decode(allocator, "Zm9vYmFy");
-defer decoded.deinit(allocator);
-// decoded.items == "foobar"
+const decoded = try engine.decode(allocator, "Zm9vYmFy");
+defer allocator.free(decoded);
+// decoded == "foobar"
 ```
 
 Custom padding symbol:
@@ -103,17 +103,17 @@ Custom padding symbol:
 ```zig
 const custom = try base64.alphabet.Alphabet.new_with_padding(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
-    .{ .s = '@' },
+    '@',
 );
 const engine = base64.Engine.init(.{ .alphabet = custom });
 
-var encoded = try engine.encode(allocator, "f");
-defer encoded.deinit(allocator);
-// encoded.items == "Zg@@"
+const encoded = try engine.encode(allocator, "f");
+defer allocator.free(encoded);
+// encoded == "Zg@@"
 
-var decoded = try engine.decode(allocator, "Zg@@");
-defer decoded.deinit(allocator);
-// decoded.items == "f"
+const decoded = try engine.decode(allocator, "Zg@@");
+defer allocator.free(decoded);
+// decoded == "f"
 ```
 
 ## Built-in alphabets
