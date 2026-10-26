@@ -18,7 +18,10 @@ pub const PADDING_SYMBOL: Symbol = .{ .s = '=' };
 ///
 /// ```
 /// const base64 = @import("base64");
-/// const custom = try base64.alphabet.Alphabet.new("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
+/// const custom = try base64.alphabet.Alphabet.new(
+///     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+/// );
+/// ```
 pub const Alphabet = struct {
     /// All bytes are valid symbols, but left as u8 to allow `.as_str()` to work.
     symbols: [ALPHABET_LEN]u8,
@@ -31,7 +34,7 @@ pub const Alphabet = struct {
     /// The padding symbol `=` is not allowed in the alphabet.
     ///
     /// See [`Self::new_with_padding`] if a non-default padding symbol is needed.
-    pub fn new(alphabet: []const u8) ParseAlphabetResult {
+    pub fn new(alphabet: []const u8) ParseAlphabetError!Alphabet {
         return Alphabet.new_with_padding(alphabet, PADDING_SYMBOL);
     }
 
@@ -61,43 +64,20 @@ pub const Alphabet = struct {
     pub fn new_with_padding(
         alphabet: []const u8,
         padding: Symbol,
-    ) ParseAlphabetResult {
-        if (alphabet.len != ALPHABET_LEN) {
-            return .{ .failure = .{
-                .invalid_length = {},
-            } };
-        }
+    ) ParseAlphabetError!Alphabet {
+        if (alphabet.len != ALPHABET_LEN) return error.InvalidLength;
 
-        {
-            var index: usize = 0;
-            while (index < ALPHABET_LEN) {
-                const byte = alphabet[index];
+        const pad_byte = padding.as_u8();
+        for (alphabet, 0..) |byte, index| {
+            if (!is_valid_b64_symbol(byte)) return error.UnprintableByte;
+            if (byte == pad_byte) return error.ReservedByte;
 
-                if (!is_valid_b64_symbol(byte)) {
-                    return .{ .failure = .{ .unprintable_byte = byte } };
-                }
-                if (byte == padding.as_u8()) {
-                    return .{ .failure = .{ .reserved_byte = byte } };
-                }
-
-                // Check for duplicates while staying within what const allows.
-                // It's n^2, but only over 64 hot bytes, and only once, so it's likely in the single digit
-                // microsecond range.
-
-                var probe_index: usize = 0;
-                while (probe_index < ALPHABET_LEN) {
-                    if (probe_index != index and byte == alphabet[probe_index]) {
-                        return .{ .failure = .{ .duplicated_byte = byte } };
-                    }
-
-                    probe_index += 1;
-                }
-
-                index += 1;
+            // Only need to check earlier bytes — later ones will check against this one.
+            for (alphabet[0..index]) |prev| {
+                if (prev == byte) return error.DuplicatedByte;
             }
         }
-
-        return .{ .success = Alphabet.from_str_unchecked(alphabet, padding) };
+        return Alphabet.from_str_unchecked(alphabet, padding);
     }
 
     /// The 64 symbols of the alphabet (excluding padding).
@@ -116,11 +96,6 @@ pub const Alphabet = struct {
     }
 };
 
-pub const ParseAlphabetResult = union(enum) {
-    success: Alphabet,
-    failure: ParseAlphabetError,
-};
-
 /// An ASCII printable byte suitable for use as a base64 symbol in an alphabet or as custom padding.
 ///
 /// This doesn't mean that a particular symbol is used in any particular alphabet, just that it
@@ -128,7 +103,8 @@ pub const ParseAlphabetResult = union(enum) {
 pub const Symbol = struct {
     s: u8,
 
-    /// Returns `Some` if `symbol` is a valid printable ASCII symbol, otherwise `None`.
+    /// Returns the symbol as `?Symbol`, or `null` if `symbol` is not a valid
+    /// printable ASCII byte.
     pub fn init(symbol: u8) ?Symbol {
         if (is_valid_b64_symbol(symbol)) {
             return .{ .s = symbol };
@@ -149,16 +125,16 @@ pub fn is_valid_b64_symbol(byte: u8) bool {
     return byte >= 32 and byte <= 126;
 }
 
-/// Possible errors when constructing an [Alphabet] from a `str`.
-pub const ParseAlphabetError = union(enum) {
-    /// Alphabets must be 64 ASCII bytes
-    invalid_length: void,
-    /// All bytes must be unique
-    duplicated_byte: u8,
-    /// All bytes must be printable (in the range `[32, 126]`).
-    unprintable_byte: u8,
-    /// Alphabet cannot contain the pad symbol (`=` by default)
-    reserved_byte: u8,
+/// Possible errors when constructing an [Alphabet] from a string.
+pub const ParseAlphabetError = error{
+    /// Alphabets must be 64 bytes long.
+    InvalidLength,
+    /// All 64 bytes must be unique.
+    DuplicatedByte,
+    /// All bytes must be printable ASCII (`[32, 126]`).
+    UnprintableByte,
+    /// The padding symbol must not appear in the alphabet.
+    ReservedByte,
 };
 
 /// The standard alphabet (with `+` and `/`) specified in [RFC 4648][].
@@ -207,64 +183,222 @@ pub const BIN_HEX: Alphabet = Alphabet.from_str_unchecked(
     PADDING_SYMBOL,
 );
 
-//
-// #[cfg(test)]
-// mod tests {
-//     use crate::alphabet::*;
-//     use core::convert::TryFrom as _;
-//
-test "detects_duplicate_start" {
-    try std.testing.expectEqual(
-        ParseAlphabetResult{
-            .failure = ParseAlphabetError{
-                .duplicated_byte = 'A',
-            },
-        },
+const testing = std.testing;
+
+test "new accepts the standard alphabet" {
+    const a = try Alphabet.new(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    );
+
+    try testing.expectEqual(@as(u8, '='), a.padding.as_u8());
+    try testing.expectEqualStrings(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        a.symbols[0..],
+    );
+}
+
+test "new_with_padding accepts a custom padding symbol" {
+    const a = try Alphabet.new_with_padding(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        .{ .s = '@' },
+    );
+
+    try testing.expectEqual(@as(u8, '@'), a.padding.as_u8());
+}
+
+test "new_with_padding allows a padding symbol that is not in the alphabet" {
+    // '@' is printable and not present in the standard symbols.
+    const a = try Alphabet.new_with_padding(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+        .{ .s = '@' },
+    );
+
+    try testing.expectEqual(@as(u8, '@'), a.padding.as_u8());
+}
+
+test "new rejects length != 64" {
+    try testing.expectError(error.InvalidLength, Alphabet.new("ABC"));
+    try testing.expectError(error.InvalidLength, Alphabet.new(""));
+
+    // 65 bytes.
+    try testing.expectError(
+        error.InvalidLength,
+        Alphabet.new("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+    );
+}
+
+test "new rejects duplicate at start" {
+    try testing.expectError(
+        error.DuplicatedByte,
         Alphabet.new("AACDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"),
     );
 }
 
-test "detects_duplicate_end" {
-    try std.testing.expectEqual(ParseAlphabetResult{ .failure = ParseAlphabetError{
-        .duplicated_byte = '/',
-    } }, Alphabet.new("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789//"));
-}
-test "detects_duplicate_middle" {
-    try std.testing.expectEqual(ParseAlphabetResult{ .failure = ParseAlphabetError{ .duplicated_byte = 'Z' } }, Alphabet.new("ABCDEFGHIJKLMNOPQRSTUVWXYZZbcdefghijklmnopqrstuvwxyz0123456789+/"));
+test "new rejects duplicate at end" {
+    try testing.expectError(
+        error.DuplicatedByte,
+        Alphabet.new("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789//"),
+    );
 }
 
-test "detects_length" {
-    try std.testing.expectEqual(ParseAlphabetResult{ .failure = ParseAlphabetError{ .invalid_length = {} } }, Alphabet.new(
-        "xxxxxxxxxABCDEFGHIJKLMNOPQRSTUVWXYZZbcdefghijklmnopqrstuvwxyz0123456789+/",
-    ));
+test "new rejects duplicate in middle" {
+    try testing.expectError(
+        error.DuplicatedByte,
+        Alphabet.new("ABCDEFGHIJKLMNOPQRSTUVWXYZZbcdefghijklmnopqrstuvwxyz0123456789+/"),
+    );
 }
 
-test "detects_padding" {
-    try std.testing.expectEqual(ParseAlphabetResult{ .failure = ParseAlphabetError{ .reserved_byte = '=' } }, Alphabet.new("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+="));
+test "new rejects the reserved padding byte inside the alphabet" {
+    try testing.expectError(
+        error.ReservedByte,
+        Alphabet.new("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+="),
+    );
 }
 
-test "detects_unprintable" {
-    // form feed
-    try std.testing.expectEqual(ParseAlphabetResult{ .failure = ParseAlphabetError{ .unprintable_byte = 0x0c } }, Alphabet.new("\x0cBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"));
+test "new_with_padding rejects a custom pad byte inside the alphabet" {
+    // '@' is used as padding *and* present in the alphabet body.
+    try testing.expectError(
+        error.ReservedByte,
+        Alphabet.new_with_padding(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+@",
+            .{ .s = '@' },
+        ),
+    );
 }
 
-test "builds_lookup_table" {
-    const result = Alphabet.new(
+test "new rejects unprintable bytes" {
+    // form feed (0x0c)
+    try testing.expectError(
+        error.UnprintableByte,
+        Alphabet.new("\x0cBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"),
+    );
+
+    // DEL (0x7f)
+    try testing.expectError(
+        error.UnprintableByte,
+        Alphabet.new("\x7fBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"),
+    );
+
+    // NUL (0x00)
+    try testing.expectError(
+        error.UnprintableByte,
+        Alphabet.new("\x00BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"),
+    );
+}
+
+test "is_valid_b64_symbol accepts [32, 126] and nothing else" {
+    try testing.expect(!is_valid_b64_symbol(0x00));
+    try testing.expect(!is_valid_b64_symbol(0x1f)); // just below space
+    try testing.expect(is_valid_b64_symbol(0x20)); // space
+    try testing.expect(is_valid_b64_symbol(0x7e)); // tilde
+    try testing.expect(!is_valid_b64_symbol(0x7f)); // DEL
+    try testing.expect(!is_valid_b64_symbol(0x80));
+    try testing.expect(!is_valid_b64_symbol(0xff));
+}
+
+test "Symbol.init rejects unprintable" {
+    try testing.expect(Symbol.init(0x00) == null);
+    try testing.expect(Symbol.init(0x1f) == null);
+    try testing.expect(Symbol.init(0x7f) == null);
+    try testing.expect(Symbol.init(0xff) == null);
+}
+
+test "Symbol.init accepts printable and preserves the byte" {
+    try testing.expectEqual(@as(u8, 'A'), Symbol.init('A').?.as_u8());
+    try testing.expectEqual(@as(u8, ' '), Symbol.init(' ').?.as_u8());
+    try testing.expectEqual(@as(u8, '~'), Symbol.init('~').?.as_u8());
+}
+
+test "lookup table is complete and correct" {
+    const a = try Alphabet.new(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
     );
 
-    const a = result.success;
-
-    for (a.symbols, 0..) |symbol, index| {
-        try std.testing.expectEqual(
-            @as(u8, @intCast(index)),
-            a.lookup[symbol],
-        );
+    // Every symbol maps back to its index.
+    for (a.symbols, 0..) |sym, i| {
+        try testing.expectEqual(@as(u8, @intCast(i)), a.lookup[sym]);
     }
 
-    for (a.lookup, 0..) |index, byte| {
-        if (std.mem.indexOfScalar(u8, &a.symbols, @intCast(byte)) == null) {
-            try std.testing.expectEqual(@as(u8, 255), index);
+    // Every byte NOT in the alphabet maps to 255.
+    for (a.lookup, 0..) |idx, byte| {
+        const present = std.mem.indexOfScalar(u8, &a.symbols, @intCast(byte)) != null;
+        if (present) {
+            try testing.expect(idx != 255);
+        } else {
+            try testing.expectEqual(@as(u8, 255), idx);
         }
     }
+}
+
+test "all provided constants have a valid lookup table and unique symbols" {
+    const constants = [_]struct { name: []const u8, alphabet: Alphabet }{
+        .{ .name = "STANDARD", .alphabet = STANDARD },
+        .{ .name = "URL_SAFE", .alphabet = URL_SAFE },
+        .{ .name = "CRYPT", .alphabet = CRYPT },
+        .{ .name = "BCRYPT", .alphabet = BCRYPT },
+        .{ .name = "IMAP_MUTF7", .alphabet = IMAP_MUTF7 },
+        .{ .name = "BIN_HEX", .alphabet = BIN_HEX },
+    };
+
+    for (constants) |c| {
+        // Every symbol maps back to its index.
+        for (c.alphabet.symbols, 0..) |sym, i| {
+            try testing.expectEqual(@as(u8, @intCast(i)), c.alphabet.lookup[sym]);
+        }
+
+        // Symbols are unique.
+        for (c.alphabet.symbols, 0..) |sym, i| {
+            for (c.alphabet.symbols[0..i]) |prev| {
+                try testing.expect(sym != prev);
+            }
+        }
+
+        // Non-alphabet bytes map to 255.
+        for (c.alphabet.lookup, 0..) |idx, byte| {
+            const present = std.mem.indexOfScalar(
+                u8,
+                &c.alphabet.symbols,
+                @intCast(byte),
+            ) != null;
+            if (!present) try testing.expectEqual(@as(u8, 255), idx);
+        }
+
+        // All constants use '=' as padding.
+        try testing.expectEqual(@as(u8, '='), c.alphabet.padding.as_u8());
+
+        // Padding symbol is not in the alphabet body.
+        try testing.expect(
+            std.mem.indexOfScalar(u8, &c.alphabet.symbols, '=') == null,
+        );
+    }
+}
+
+test "URL_SAFE differs from STANDARD only at indices 62 and 63" {
+    try testing.expectEqual(@as(u8, '+'), STANDARD.symbols[62]);
+    try testing.expectEqual(@as(u8, '/'), STANDARD.symbols[63]);
+    try testing.expectEqual(@as(u8, '-'), URL_SAFE.symbols[62]);
+    try testing.expectEqual(@as(u8, '_'), URL_SAFE.symbols[63]);
+
+    for (STANDARD.symbols[0..62], URL_SAFE.symbols[0..62]) |s, u| {
+        try testing.expectEqual(s, u);
+    }
+}
+
+test "IMAP_MUTF7 differs from STANDARD only at index 63" {
+    try testing.expectEqual(@as(u8, '/'), STANDARD.symbols[63]);
+    try testing.expectEqual(@as(u8, ','), IMAP_MUTF7.symbols[63]);
+
+    for (STANDARD.symbols[0..63], IMAP_MUTF7.symbols[0..63]) |s, u| {
+        try testing.expectEqual(s, u);
+    }
+}
+
+test "CRYPT and BCRYPT share the './' prefix but order the rest differently" {
+    try testing.expectEqualStrings("./", CRYPT.symbols[0..2]);
+    try testing.expectEqualStrings("./", BCRYPT.symbols[0..2]);
+
+    // CRYPT: 0-9A-Za-z after "./"
+    try testing.expectEqual(@as(u8, '0'), CRYPT.symbols[2]);
+    // BCRYPT: A-Za-z0-9 after "./"
+    try testing.expectEqual(@as(u8, 'A'), BCRYPT.symbols[2]);
 }
