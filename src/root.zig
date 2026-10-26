@@ -107,7 +107,10 @@ pub const Engine = struct {
     }
 
     pub fn calc_encode_len(input_len: usize) !usize {
-        return (if (input_len < 3) 4 else try std.math.divCeil(usize, input_len, 3)) * 4;
+        if (input_len == 0) return 0;
+        
+        const groups = try std.math.divCeil(usize, input_len, 3);
+        return try std.math.mul(usize, groups, 4);
     }
 
     pub fn calc_decode_len(input_len: usize, padding_length: usize) !usize {
