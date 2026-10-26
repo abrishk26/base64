@@ -22,6 +22,7 @@ pub const PADDING_SYMBOL: Symbol = .{ .s = '=' };
 pub const Alphabet = struct {
     /// All bytes are valid symbols, but left as u8 to allow `.as_str()` to work.
     symbols: [ALPHABET_LEN]u8,
+    lookup: [256]u8,
     padding: Symbol,
 
     /// Create an `Alphabet` from a string of 64 unique printable ASCII bytes with `=` as the
@@ -38,16 +39,17 @@ pub const Alphabet = struct {
     /// Used only for known-valid strings.
     fn from_str_unchecked(alphabet: []const u8, padding: Symbol) Alphabet {
         var symbols: [ALPHABET_LEN]u8 = @splat(0);
-        const source_bytes = alphabet;
+        var lookup: [256]u8 = @splat(255);
 
-        // a way to copy that's allowed in const fn
-        var index: usize = 0;
-        while (index < ALPHABET_LEN) {
-            symbols[index] = source_bytes[index];
-            index += 1;
+        for (alphabet, 0..) |symbol, index| {
+            symbols[index] = symbol;
         }
 
-        return .{ .symbols = symbols, .padding = padding };
+        for (symbols, 0..) |symbol, index| {
+            lookup[symbol] = @intCast(index);
+        }
+
+        return .{ .symbols = symbols, .lookup = lookup, .padding = padding };
     }
 
     /// Create an `Alphabet` from a string of 64 unique printable ASCII bytes, with a custom
@@ -244,4 +246,25 @@ test "detects_padding" {
 test "detects_unprintable" {
     // form feed
     try std.testing.expectEqual(ParseAlphabetResult{ .failure = ParseAlphabetError{ .unprintable_byte = 0x0c } }, Alphabet.new("\x0cBCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"));
+}
+
+test "builds_lookup_table" {
+    const result = Alphabet.new(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
+    );
+
+    const a = result.success;
+
+    for (a.symbols, 0..) |symbol, index| {
+        try std.testing.expectEqual(
+            @as(u8, @intCast(index)),
+            a.lookup[symbol],
+        );
+    }
+
+    for (a.lookup, 0..) |index, byte| {
+        if (std.mem.indexOfScalar(u8, &a.symbols, @intCast(byte)) == null) {
+            try std.testing.expectEqual(@as(u8, 255), index);
+        }
+    }
 }
