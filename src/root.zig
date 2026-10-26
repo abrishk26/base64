@@ -12,7 +12,7 @@ pub const Engine = struct {
         return .{ .alphabet = config.alphabet };
     }
 
-    pub fn encode(self: Engine, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    pub fn encode(self: Engine, allocator: std.mem.Allocator, input: []const u8) !std.ArrayList(u8) {
         const symbols = self.alphabet.symbols;
         const padding = self.alphabet.padding;
         
@@ -38,10 +38,10 @@ pub const Engine = struct {
             try output.appendSlice(allocator, &.{ symbols[buf[0] >> 2], symbols[((buf[0] & 3) << 4) | (buf[1] >> 4)], symbols[(buf[1] & 15) << 2], padding.as_u8() });
         }
 
-        return output.items;
+        return output;
     }
     
-    pub fn decode(self: Engine, allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    pub fn decode(self: Engine, allocator: std.mem.Allocator, input: []const u8) !std.ArrayList(u8) {
         const padding = self.alphabet.padding;
         
         var buf = [_]u8{ 0, 0, 0, 0 };
@@ -71,10 +71,10 @@ pub const Engine = struct {
             2 => &.{
                 (buf[0] << 2) | (buf[1] >> 4),
             },
-            else => return output.items,
+            else => return output,
         });
 
-        return output.items;
+        return output;
     }
 
     pub fn _count_padding(input: []const u8, padding: u8) usize {
