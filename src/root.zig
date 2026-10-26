@@ -104,7 +104,7 @@ pub const Engine = struct {
         return output;
     }
 
-    pub fn _char_at(self: Engine, index: usize) u8 {
+    fn _char_at(self: Engine, index: usize) u8 {
         return self.alphabet.symbols[index];
     }
 
