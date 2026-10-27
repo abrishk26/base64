@@ -31,11 +31,11 @@ pub const DecodeError = std.mem.Allocator.Error || error{
 /// Unlike `@errorName`, this is safe to change wording on.
 pub fn describe(err: anyerror) []const u8 {
     return switch (err) {
-        error.OutOfMemory     => "out of memory",
-        error.Overflow        => "length overflow",
+        error.OutOfMemory => "out of memory",
+        error.Overflow => "length overflow",
         error.InvalidCharacter => "invalid character in input",
-        error.InvalidLength   => "invalid input length",
-        error.InvalidPadding  => "invalid padding",
-        else                  => @errorName(err),
+        error.InvalidLength => "invalid input length",
+        error.InvalidPadding => "invalid padding",
+        else => @errorName(err),
     };
 }
